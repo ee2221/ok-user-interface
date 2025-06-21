@@ -143,7 +143,7 @@ const Toolbar: React.FC = () => {
   return (
     <div className="absolute top-4 left-4 bg-[#1a1a1a] rounded-xl shadow-2xl shadow-black/20 p-3 border border-white/5">
       <div className="flex flex-col gap-3">
-        {/* Action Tools */}
+        {/* Action Tools - Now at the top */}
         <div className="space-y-1 border-b border-white/10 pb-3">
           <div className="px-2 py-1">
             <h3 className="text-xs font-medium text-white/50 uppercase tracking-wider">Actions</h3>
