@@ -9,13 +9,7 @@ import {
   RotateCw, 
   Maximize, 
   Projector as Vector, 
-  Link,
-  Undo,
-  Redo,
-  Copy,
-  FlipHorizontal,
-  ZoomIn,
-  ZoomOut
+  Link
 } from 'lucide-react';
 import { useSceneStore } from '../store/sceneStore';
 import * as THREE from 'three';
@@ -27,15 +21,7 @@ const Toolbar: React.FC = () => {
     transformMode, 
     setEditMode,
     editMode,
-    selectedObject,
-    undo,
-    redo,
-    canUndo,
-    canRedo,
-    duplicateObject,
-    mirrorObject,
-    zoomIn,
-    zoomOut
+    selectedObject
   } = useSceneStore();
 
   const createObject = (geometry: THREE.BufferGeometry, name: string) => {
@@ -44,51 +30,6 @@ const Toolbar: React.FC = () => {
     mesh.position.set(0, 0, 0);
     addObject(mesh, name);
   };
-
-  const actionTools = [
-    {
-      icon: Undo,
-      action: undo,
-      title: 'Undo',
-      disabled: !canUndo,
-      type: 'action'
-    },
-    {
-      icon: Redo,
-      action: redo,
-      title: 'Redo',
-      disabled: !canRedo,
-      type: 'action'
-    },
-    {
-      icon: Copy,
-      action: duplicateObject,
-      title: 'Duplicate',
-      disabled: !selectedObject,
-      type: 'action'
-    },
-    {
-      icon: FlipHorizontal,
-      action: mirrorObject,
-      title: 'Mirror',
-      disabled: !selectedObject,
-      type: 'action'
-    },
-    {
-      icon: ZoomIn,
-      action: zoomIn,
-      title: 'Zoom In',
-      disabled: false,
-      type: 'action'
-    },
-    {
-      icon: ZoomOut,
-      action: zoomOut,
-      title: 'Zoom Out',
-      disabled: false,
-      type: 'action'
-    }
-  ] as const;
 
   const transformTools = [
     {
@@ -143,30 +84,6 @@ const Toolbar: React.FC = () => {
   return (
     <div className="absolute top-4 left-4 bg-[#1a1a1a] rounded-xl shadow-2xl shadow-black/20 p-3 border border-white/5">
       <div className="flex flex-col gap-3">
-        {/* Action Tools */}
-        <div className="space-y-1 border-b border-white/10 pb-3">
-          <div className="px-2 py-1">
-            <h3 className="text-xs font-medium text-white/50 uppercase tracking-wider">Actions</h3>
-          </div>
-          <div className="grid grid-cols-2 gap-1">
-            {actionTools.map(({ icon: Icon, action, title, disabled }) => (
-              <button
-                key={title}
-                onClick={action}
-                disabled={disabled}
-                className={`p-2 rounded-lg transition-colors flex items-center justify-center ${
-                  disabled
-                    ? 'text-white/30 cursor-not-allowed bg-white/5'
-                    : 'text-white/90 hover:bg-white/10 hover:text-white'
-                }`}
-                title={disabled ? `${title} (Not available)` : title}
-              >
-                <Icon className="w-4 h-4" />
-              </button>
-            ))}
-          </div>
-        </div>
-
         {/* 3D Shapes */}
         <div className="space-y-1 border-b border-white/10 pb-3">
           <div className="px-2 py-1">
