@@ -13,6 +13,18 @@ interface Group {
   objectIds: string[];
 }
 
+interface HistoryState {
+  objects: Array<{
+    id: string;
+    object: THREE.Object3D;
+    name: string;
+    visible: boolean;
+    locked: boolean;
+    groupId?: string;
+  }>;
+  groups: Group[];
+}
+
 interface SceneState {
   objects: Array<{
     id: string;
@@ -27,6 +39,7 @@ interface SceneState {
   transformMode: 'translate' | 'rotate' | 'scale' | null;
   editMode: EditMode;
   cameraPerspective: CameraPerspective;
+  cameraZoom: number;
   selectedElements: {
     vertices: number[];
     edges: number[];
@@ -45,6 +58,10 @@ interface SceneState {
     midpoint: THREE.Vector3;
   } | null;
   isDraggingEdge: boolean;
+  history: HistoryState[];
+  historyIndex: number;
+  canUndo: boolean;
+  canRedo: boolean;
   addObject: (object: THREE.Object3D, name: string) => void;
   removeObject: (id: string) => void;
   setSelectedObject: (object: THREE.Object3D | null) => void;
@@ -77,10 +94,35 @@ interface SceneState {
   toggleGroupLock: (groupId: string) => void;
   updateGroupName: (groupId: string, name: string) => void;
   moveObjectsToGroup: (objectIds: string[], groupId: string | null) => void;
+  // New action functions
+  undo: () => void;
+  redo: () => void;
+  duplicateObject: () => void;
+  mirrorObject: () => void;
+  zoomIn: () => void;
+  zoomOut: () => void;
   // Helper functions
   isObjectLocked: (objectId: string) => boolean;
   canSelectObject: (object: THREE.Object3D) => boolean;
+  saveToHistory: () => void;
 }
+
+const cloneObject = (obj: THREE.Object3D): THREE.Object3D => {
+  if (obj instanceof THREE.Mesh) {
+    const clonedGeometry = obj.geometry.clone();
+    const clonedMaterial = obj.material instanceof Array 
+      ? obj.material.map(mat => mat.clone())
+      : obj.material.clone();
+    const clonedMesh = new THREE.Mesh(clonedGeometry, clonedMaterial);
+    
+    clonedMesh.position.copy(obj.position);
+    clonedMesh.rotation.copy(obj.rotation);
+    clonedMesh.scale.copy(obj.scale);
+    
+    return clonedMesh;
+  }
+  return obj.clone();
+};
 
 export const useSceneStore = create<SceneState>((set, get) => ({
   objects: [],
@@ -89,6 +131,7 @@ export const useSceneStore = create<SceneState>((set, get) => ({
   transformMode: null,
   editMode: null,
   cameraPerspective: 'perspective',
+  cameraZoom: 1,
   selectedElements: {
     vertices: [],
     edges: [],
@@ -97,11 +140,46 @@ export const useSceneStore = create<SceneState>((set, get) => ({
   draggedVertex: null,
   draggedEdge: null,
   isDraggingEdge: false,
+  history: [],
+  historyIndex: -1,
+  canUndo: false,
+  canRedo: false,
+
+  saveToHistory: () => {
+    const state = get();
+    const currentState: HistoryState = {
+      objects: state.objects.map(obj => ({
+        ...obj,
+        object: cloneObject(obj.object)
+      })),
+      groups: JSON.parse(JSON.stringify(state.groups))
+    };
+
+    const newHistory = state.history.slice(0, state.historyIndex + 1);
+    newHistory.push(currentState);
+
+    // Limit history to 50 states
+    if (newHistory.length > 50) {
+      newHistory.shift();
+    }
+
+    set({
+      history: newHistory,
+      historyIndex: newHistory.length - 1,
+      canUndo: true,
+      canRedo: false
+    });
+  },
 
   addObject: (object, name) =>
-    set((state) => ({
-      objects: [...state.objects, { id: crypto.randomUUID(), object, name, visible: true, locked: false }],
-    })),
+    set((state) => {
+      const newObjects = [...state.objects, { id: crypto.randomUUID(), object, name, visible: true, locked: false }];
+      
+      // Save to history after adding
+      setTimeout(() => get().saveToHistory(), 0);
+      
+      return { objects: newObjects };
+    }),
 
   removeObject: (id) =>
     set((state) => {
@@ -121,13 +199,18 @@ export const useSceneStore = create<SceneState>((set, get) => ({
         objectIds: group.objectIds.filter(objId => objId !== id)
       }));
 
-      return {
+      const newState = {
         objects: state.objects.filter((obj) => obj.id !== id),
         groups: updatedGroups,
         selectedObject: state.objects.find((obj) => obj.id === id)?.object === state.selectedObject
           ? null
           : state.selectedObject,
       };
+
+      // Save to history after removing
+      setTimeout(() => get().saveToHistory(), 0);
+
+      return newState;
     }),
 
   setSelectedObject: (object) => 
@@ -364,7 +447,10 @@ export const useSceneStore = create<SceneState>((set, get) => ({
       };
     }),
 
-  endVertexDrag: () => set({ draggedVertex: null }),
+  endVertexDrag: () => {
+    get().saveToHistory();
+    set({ draggedVertex: null });
+  },
 
   startEdgeDrag: (vertexIndices, positions, midpoint) =>
     set((state) => {
@@ -468,7 +554,10 @@ export const useSceneStore = create<SceneState>((set, get) => ({
       };
     }),
 
-  endEdgeDrag: () => set({ draggedEdge: null }),
+  endEdgeDrag: () => {
+    get().saveToHistory();
+    set({ draggedEdge: null });
+  },
 
   setIsDraggingEdge: (isDragging) => set({ isDraggingEdge: isDragging }),
 
@@ -497,6 +586,8 @@ export const useSceneStore = create<SceneState>((set, get) => ({
 
       state.selectedObject.geometry.dispose();
       state.selectedObject.geometry = newGeometry;
+
+      get().saveToHistory();
 
       return {
         ...state,
@@ -533,6 +624,8 @@ export const useSceneStore = create<SceneState>((set, get) => ({
       state.selectedObject.geometry.dispose();
       state.selectedObject.geometry = newGeometry;
 
+      get().saveToHistory();
+
       return {
         ...state,
         selectedElements: {
@@ -562,6 +655,8 @@ export const useSceneStore = create<SceneState>((set, get) => ({
           : obj
       );
 
+      get().saveToHistory();
+
       return {
         groups: [...state.groups, newGroup],
         objects: updatedObjects
@@ -579,6 +674,8 @@ export const useSceneStore = create<SceneState>((set, get) => ({
           ? { ...obj, groupId: undefined }
           : obj
       );
+
+      get().saveToHistory();
 
       return {
         groups: state.groups.filter(group => group.id !== groupId),
@@ -754,6 +851,106 @@ export const useSceneStore = create<SceneState>((set, get) => ({
         objects: updatedObjects
       };
     }),
+
+  // New action functions
+  undo: () =>
+    set((state) => {
+      if (state.historyIndex <= 0) return state;
+
+      const previousState = state.history[state.historyIndex - 1];
+      
+      return {
+        ...state,
+        objects: previousState.objects,
+        groups: previousState.groups,
+        historyIndex: state.historyIndex - 1,
+        canUndo: state.historyIndex - 1 > 0,
+        canRedo: true,
+        selectedObject: null // Clear selection on undo
+      };
+    }),
+
+  redo: () =>
+    set((state) => {
+      if (state.historyIndex >= state.history.length - 1) return state;
+
+      const nextState = state.history[state.historyIndex + 1];
+      
+      return {
+        ...state,
+        objects: nextState.objects,
+        groups: nextState.groups,
+        historyIndex: state.historyIndex + 1,
+        canUndo: true,
+        canRedo: state.historyIndex + 1 < state.history.length - 1,
+        selectedObject: null // Clear selection on redo
+      };
+    }),
+
+  duplicateObject: () =>
+    set((state) => {
+      if (!state.selectedObject) return state;
+
+      // Check if selected object is locked
+      const selectedObj = state.objects.find(obj => obj.object === state.selectedObject);
+      if (!selectedObj || get().isObjectLocked(selectedObj.id)) return state;
+
+      const clonedObject = cloneObject(state.selectedObject);
+      clonedObject.position.x += 1; // Offset the duplicate
+
+      const newObject = {
+        id: crypto.randomUUID(),
+        object: clonedObject,
+        name: `${selectedObj.name} Copy`,
+        visible: true,
+        locked: false,
+        groupId: selectedObj.groupId
+      };
+
+      // Update group if object belongs to one
+      let updatedGroups = state.groups;
+      if (selectedObj.groupId) {
+        updatedGroups = state.groups.map(group =>
+          group.id === selectedObj.groupId
+            ? { ...group, objectIds: [...group.objectIds, newObject.id] }
+            : group
+        );
+      }
+
+      get().saveToHistory();
+
+      return {
+        objects: [...state.objects, newObject],
+        groups: updatedGroups,
+        selectedObject: clonedObject
+      };
+    }),
+
+  mirrorObject: () =>
+    set((state) => {
+      if (!state.selectedObject) return state;
+
+      // Check if selected object is locked
+      const selectedObj = state.objects.find(obj => obj.object === state.selectedObject);
+      if (!selectedObj || get().isObjectLocked(selectedObj.id)) return state;
+
+      // Mirror along X-axis
+      state.selectedObject.scale.x *= -1;
+
+      get().saveToHistory();
+
+      return state;
+    }),
+
+  zoomIn: () =>
+    set((state) => ({
+      cameraZoom: Math.min(state.cameraZoom * 1.2, 5)
+    })),
+
+  zoomOut: () =>
+    set((state) => ({
+      cameraZoom: Math.max(state.cameraZoom / 1.2, 0.1)
+    })),
 
   // Helper functions
   isObjectLocked: (objectId) => {

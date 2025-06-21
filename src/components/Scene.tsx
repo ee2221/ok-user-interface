@@ -523,14 +523,14 @@ const EditModeOverlay = () => {
 // Camera controller component
 const CameraController = () => {
   const { camera } = useThree();
-  const { cameraPerspective } = useSceneStore();
+  const { cameraPerspective, cameraZoom } = useSceneStore();
   const controlsRef = useRef();
 
   useEffect(() => {
     if (!camera || !controlsRef.current) return;
 
     const controls = controlsRef.current;
-    const distance = 10; // Distance from origin
+    const distance = 10 / cameraZoom; // Apply zoom to distance
 
     switch (cameraPerspective) {
       case 'front':
@@ -565,7 +565,7 @@ const CameraController = () => {
         break;
       case 'perspective':
       default:
-        camera.position.set(5, 5, 5);
+        camera.position.set(5 / cameraZoom, 5 / cameraZoom, 5 / cameraZoom);
         camera.lookAt(0, 0, 0);
         camera.up.set(0, 1, 0);
         break;
@@ -576,7 +576,7 @@ const CameraController = () => {
       controls.target.set(0, 0, 0);
     }
     controls.update();
-  }, [cameraPerspective, camera]);
+  }, [cameraPerspective, camera, cameraZoom]);
 
   // Handle keyboard shortcuts
   useEffect(() => {
