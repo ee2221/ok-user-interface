@@ -33,7 +33,7 @@ interface ObjectCategory {
   objects: {
     name: string;
     icon: React.ComponentType<any>;
-    geometry: () => THREE.BufferGeometry;
+    geometry: () => THREE.BufferGeometry | THREE.Group;
     color?: string;
   }[];
 }
@@ -42,13 +42,6 @@ const ObjectLibrary: React.FC = () => {
   const { addObject } = useSceneStore();
   const [expandedCategories, setExpandedCategories] = useState<string[]>(['Basic Shapes']);
   const [isLibraryOpen, setIsLibraryOpen] = useState(false);
-
-  const createObject = (geometry: THREE.BufferGeometry, name: string, color = '#44aa88') => {
-    const material = new THREE.MeshStandardMaterial({ color });
-    const mesh = new THREE.Mesh(geometry, material);
-    mesh.position.set(0, 0, 0);
-    addObject(mesh, name);
-  };
 
   // Helper function to create tree geometry
   const createTreeGeometry = () => {
@@ -378,8 +371,20 @@ const ObjectLibrary: React.FC = () => {
   };
 
   const handleObjectCreate = (objectDef: any) => {
-    const geometry = objectDef.geometry();
-    createObject(geometry, objectDef.name, objectDef.color);
+    const geometryOrGroup = objectDef.geometry();
+    
+    // Check if it's a THREE.Group or THREE.BufferGeometry
+    if (geometryOrGroup instanceof THREE.Group) {
+      // It's already a complete group, add it directly
+      geometryOrGroup.position.set(0, 0, 0);
+      addObject(geometryOrGroup, objectDef.name);
+    } else {
+      // It's a BufferGeometry, create a mesh with material
+      const material = new THREE.MeshStandardMaterial({ color: objectDef.color || '#44aa88' });
+      const mesh = new THREE.Mesh(geometryOrGroup, material);
+      mesh.position.set(0, 0, 0);
+      addObject(mesh, objectDef.name);
+    }
   };
 
   return (
