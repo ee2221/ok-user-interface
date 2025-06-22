@@ -41,15 +41,15 @@ const CameraPerspectivePanel: React.FC = () => {
     <div className="absolute left-4 bottom-4">
       <svg
         viewBox="0 0 120 120"
-        className="w-16 h-16 cursor-pointer"
-        style={{ filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.5))' }}
+        className="w-24 h-24 cursor-pointer"
+        style={{ filter: 'drop-shadow(0 4px 8px rgba(0,0,0,0.6))' }}
       >
         {/* Front face */}
         <polygon
           points="30,45 90,45 90,90 30,90"
           fill={getFaceColor('front', '#2a2a2a')}
-          stroke="#555"
-          strokeWidth="1"
+          stroke="white"
+          strokeWidth="2"
           className="transition-all duration-200"
           onClick={() => handleFaceClick('front')}
           onMouseEnter={() => setHoveredFace('front')}
@@ -60,8 +60,8 @@ const CameraPerspectivePanel: React.FC = () => {
         <polygon
           points="90,45 110,30 110,75 90,90"
           fill={getFaceColor('right', '#1a1a1a')}
-          stroke="#555"
-          strokeWidth="1"
+          stroke="white"
+          strokeWidth="2"
           className="transition-all duration-200"
           onClick={() => handleFaceClick('right')}
           onMouseEnter={() => setHoveredFace('right')}
@@ -72,8 +72,8 @@ const CameraPerspectivePanel: React.FC = () => {
         <polygon
           points="30,45 50,30 110,30 90,45"
           fill={getFaceColor('top', '#333')}
-          stroke="#555"
-          strokeWidth="1"
+          stroke="white"
+          strokeWidth="2"
           className="transition-all duration-200"
           onClick={() => handleFaceClick('top')}
           onMouseEnter={() => setHoveredFace('top')}
@@ -84,10 +84,10 @@ const CameraPerspectivePanel: React.FC = () => {
         <circle
           cx="60"
           cy="67"
-          r="8"
+          r="10"
           fill={getFaceColor('perspective', '#444')}
-          stroke="#666"
-          strokeWidth="1"
+          stroke="white"
+          strokeWidth="2"
           className="transition-all duration-200"
           onClick={() => handleFaceClick('perspective')}
           onMouseEnter={() => setHoveredFace('perspective')}
