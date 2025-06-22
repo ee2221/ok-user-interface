@@ -62,6 +62,13 @@ interface SceneState {
   historyIndex: number;
   canUndo: boolean;
   canRedo: boolean;
+  // New placement state
+  placementMode: boolean;
+  pendingObject: {
+    geometry: () => THREE.BufferGeometry | THREE.Group;
+    name: string;
+    color?: string;
+  } | null;
   addObject: (object: THREE.Object3D, name: string) => void;
   removeObject: (id: string) => void;
   setSelectedObject: (object: THREE.Object3D | null) => void;
@@ -101,6 +108,10 @@ interface SceneState {
   mirrorObject: () => void;
   zoomIn: () => void;
   zoomOut: () => void;
+  // New placement functions
+  startObjectPlacement: (objectDef: { geometry: () => THREE.BufferGeometry | THREE.Group; name: string; color?: string }) => void;
+  placeObjectAt: (position: THREE.Vector3) => void;
+  cancelObjectPlacement: () => void;
   // Helper functions
   isObjectLocked: (objectId: string) => boolean;
   canSelectObject: (object: THREE.Object3D) => boolean;
@@ -144,6 +155,9 @@ export const useSceneStore = create<SceneState>((set, get) => ({
   historyIndex: -1,
   canUndo: false,
   canRedo: false,
+  // New placement state
+  placementMode: false,
+  pendingObject: null,
 
   saveToHistory: () => {
     const state = get();
@@ -951,6 +965,64 @@ export const useSceneStore = create<SceneState>((set, get) => ({
     set((state) => ({
       cameraZoom: Math.max(state.cameraZoom / 1.2, 0.1)
     })),
+
+  // New placement functions
+  startObjectPlacement: (objectDef) =>
+    set({
+      placementMode: true,
+      pendingObject: objectDef,
+      selectedObject: null,
+      transformMode: null,
+      editMode: null
+    }),
+
+  placeObjectAt: (position) =>
+    set((state) => {
+      if (!state.pendingObject) return state;
+
+      const geometryOrGroup = state.pendingObject.geometry();
+      let object: THREE.Object3D;
+
+      // Check if it's a THREE.Group or THREE.BufferGeometry
+      if (geometryOrGroup instanceof THREE.Group) {
+        // It's already a complete group, use it directly
+        object = geometryOrGroup;
+      } else {
+        // It's a BufferGeometry, create a mesh with material
+        const material = new THREE.MeshStandardMaterial({ 
+          color: state.pendingObject.color || '#44aa88' 
+        });
+        object = new THREE.Mesh(geometryOrGroup, material);
+      }
+
+      // Set position
+      object.position.copy(position);
+
+      // Add to scene
+      const newObjects = [...state.objects, { 
+        id: crypto.randomUUID(), 
+        object, 
+        name: state.pendingObject.name, 
+        visible: true, 
+        locked: false 
+      }];
+
+      // Save to history after adding
+      setTimeout(() => get().saveToHistory(), 0);
+
+      return {
+        objects: newObjects,
+        placementMode: false,
+        pendingObject: null,
+        selectedObject: object
+      };
+    }),
+
+  cancelObjectPlacement: () =>
+    set({
+      placementMode: false,
+      pendingObject: null
+    }),
 
   // Helper functions
   isObjectLocked: (objectId) => {

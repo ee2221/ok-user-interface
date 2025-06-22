@@ -629,6 +629,86 @@ const CameraController = () => {
   );
 };
 
+// Placement helper component
+const PlacementHelper = () => {
+  const { placementMode, pendingObject, placeObjectAt, cancelObjectPlacement } = useSceneStore();
+  const { camera, raycaster, pointer } = useThree();
+  const [hoverPosition, setHoverPosition] = useState<THREE.Vector3 | null>(null);
+
+  useEffect(() => {
+    if (!placementMode) return;
+
+    const handlePointerMove = (event) => {
+      // Cast ray to find intersection with ground plane
+      const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+      raycaster.setFromCamera(pointer, camera);
+      
+      const intersection = new THREE.Vector3();
+      if (raycaster.ray.intersectPlane(groundPlane, intersection)) {
+        setHoverPosition(intersection);
+      }
+    };
+
+    const handleClick = (event) => {
+      if (event.button === 0 && hoverPosition) { // Left click
+        placeObjectAt(hoverPosition);
+        setHoverPosition(null);
+      }
+    };
+
+    const handleRightClick = (event) => {
+      if (event.button === 2) { // Right click
+        event.preventDefault();
+        cancelObjectPlacement();
+        setHoverPosition(null);
+      }
+    };
+
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        cancelObjectPlacement();
+        setHoverPosition(null);
+      }
+    };
+
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('click', handleClick);
+    window.addEventListener('contextmenu', handleRightClick);
+    window.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('click', handleClick);
+      window.removeEventListener('contextmenu', handleRightClick);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [placementMode, hoverPosition, camera, raycaster, pointer, placeObjectAt, cancelObjectPlacement]);
+
+  if (!placementMode || !hoverPosition || !pendingObject) return null;
+
+  // Create preview object
+  const geometryOrGroup = pendingObject.geometry();
+  let previewObject;
+
+  if (geometryOrGroup instanceof THREE.Group) {
+    previewObject = geometryOrGroup.clone();
+  } else {
+    const material = new THREE.MeshStandardMaterial({ 
+      color: pendingObject.color || '#44aa88',
+      transparent: true,
+      opacity: 0.5
+    });
+    previewObject = new THREE.Mesh(geometryOrGroup, material);
+  }
+
+  return (
+    <primitive 
+      object={previewObject} 
+      position={hoverPosition}
+    />
+  );
+};
+
 const Scene: React.FC = () => {
   const { 
     objects, 
@@ -641,7 +721,8 @@ const Scene: React.FC = () => {
     selectedElements, 
     updateVertexDrag,
     updateEdgeDrag,
-    canSelectObject
+    canSelectObject,
+    placementMode
   } = useSceneStore();
   const [selectedPosition, setSelectedPosition] = useState<THREE.Vector3 | null>(null);
   const [selectedEdgePosition, setSelectedEdgePosition] = useState<THREE.Vector3 | null>(null);
@@ -727,7 +808,7 @@ const Scene: React.FC = () => {
               object={object}
               onClick={(e) => {
                 e.stopPropagation();
-                if (canSelectObject(object)) {
+                if (!placementMode && canSelectObject(object)) {
                   setSelectedObject(object);
                 }
               }}
@@ -735,7 +816,7 @@ const Scene: React.FC = () => {
           )
         ))}
 
-        {selectedObject && transformMode && canSelectObject(selectedObject) && (
+        {selectedObject && transformMode && canSelectObject(selectedObject) && !placementMode && (
           <TransformControls
             object={selectedObject}
             mode={transformMode}
@@ -743,6 +824,7 @@ const Scene: React.FC = () => {
         )}
 
         <EditModeOverlay />
+        <PlacementHelper />
         <CameraController />
       </Canvas>
       {editMode === 'vertex' && selectedPosition && (

@@ -44,12 +44,14 @@ interface ObjectCategory {
 
 const Toolbar: React.FC = () => {
   const { 
-    addObject,
     setTransformMode, 
     transformMode, 
     setEditMode,
     editMode,
-    selectedObject
+    selectedObject,
+    placementMode,
+    startObjectPlacement,
+    cancelObjectPlacement
   } = useSceneStore();
 
   const [expandedCategories, setExpandedCategories] = useState<string[]>(['Basic Shapes']);
@@ -432,25 +434,31 @@ const Toolbar: React.FC = () => {
   };
 
   const handleObjectCreate = (objectDef: any) => {
-    const geometryOrGroup = objectDef.geometry();
-    
-    // Check if it's a THREE.Group or THREE.BufferGeometry
-    if (geometryOrGroup instanceof THREE.Group) {
-      // It's already a complete group, add it directly
-      geometryOrGroup.position.set(0, 0, 0);
-      addObject(geometryOrGroup, objectDef.name);
-    } else {
-      // It's a BufferGeometry, create a mesh with material
-      const material = new THREE.MeshStandardMaterial({ color: objectDef.color || '#44aa88' });
-      const mesh = new THREE.Mesh(geometryOrGroup, material);
-      mesh.position.set(0, 0, 0);
-      addObject(mesh, objectDef.name);
-    }
+    // Start placement mode instead of immediately creating the object
+    startObjectPlacement(objectDef);
   };
 
   return (
     <div className="absolute top-4 left-4 bg-[#1a1a1a] rounded-xl shadow-2xl shadow-black/20 p-3 border border-white/5 max-h-[85vh] overflow-y-auto">
       <div className="flex flex-col gap-3">
+        {/* Placement Mode Indicator */}
+        {placementMode && (
+          <div className="bg-blue-500/20 border border-blue-500/30 rounded-lg p-3 mb-2">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-blue-400 text-sm font-medium">Placement Mode</p>
+                <p className="text-white/70 text-xs">Click on the plane to place object</p>
+              </div>
+              <button
+                onClick={cancelObjectPlacement}
+                className="px-2 py-1 bg-red-500/20 text-red-400 rounded text-xs hover:bg-red-500/30 transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* 3D Object Library */}
         <div className="space-y-1 border-b border-white/10 pb-3">
           <div className="px-2 py-1">
@@ -462,7 +470,12 @@ const Toolbar: React.FC = () => {
               <div key={category.name}>
                 <button
                   onClick={() => toggleCategory(category.name)}
-                  className="w-full p-2 hover:bg-white/5 rounded-lg transition-colors flex items-center justify-between text-white/90"
+                  disabled={placementMode}
+                  className={`w-full p-2 rounded-lg transition-colors flex items-center justify-between ${
+                    placementMode 
+                      ? 'text-white/30 cursor-not-allowed' 
+                      : 'text-white/90 hover:bg-white/5'
+                  }`}
                 >
                   <div className="flex items-center gap-2">
                     <category.icon className="w-4 h-4" />
@@ -481,8 +494,13 @@ const Toolbar: React.FC = () => {
                       <button
                         key={obj.name}
                         onClick={() => handleObjectCreate(obj)}
-                        className="p-2 bg-[#2a2a2a] hover:bg-[#3a3a3a] rounded-lg transition-all duration-200 flex flex-col items-center gap-1 text-white/90 hover:scale-105 active:scale-95"
-                        title={`Add ${obj.name}`}
+                        disabled={placementMode}
+                        className={`p-2 rounded-lg transition-all duration-200 flex flex-col items-center gap-1 ${
+                          placementMode
+                            ? 'bg-[#2a2a2a] text-white/30 cursor-not-allowed'
+                            : 'bg-[#2a2a2a] hover:bg-[#3a3a3a] text-white/90 hover:scale-105 active:scale-95'
+                        }`}
+                        title={placementMode ? 'Finish current placement first' : `Add ${obj.name}`}
                       >
                         <obj.icon className="w-4 h-4" />
                         <span className="text-xs font-medium text-center leading-tight">{obj.name}</span>
@@ -504,15 +522,20 @@ const Toolbar: React.FC = () => {
             <button
               key={mode}
               onClick={() => {
-                setTransformMode(mode);
-                setEditMode(null);
+                if (!placementMode) {
+                  setTransformMode(mode);
+                  setEditMode(null);
+                }
               }}
+              disabled={placementMode}
               className={`p-2 rounded-lg transition-colors w-full flex items-center gap-2 ${
-                transformMode === mode && !editMode 
-                  ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30'
-                  : 'text-white/90 hover:bg-white/5'
+                placementMode
+                  ? 'text-white/30 cursor-not-allowed'
+                  : transformMode === mode && !editMode 
+                    ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30'
+                    : 'text-white/90 hover:bg-white/5'
               }`}
-              title={title}
+              title={placementMode ? 'Finish current placement first' : title}
             >
               <Icon className="w-5 h-5" />
               <span className="text-sm font-medium">{title}</span>
@@ -529,20 +552,26 @@ const Toolbar: React.FC = () => {
             <button
               key={mode}
               onClick={() => {
-                if (!disabled) {
+                if (!disabled && !placementMode) {
                   setEditMode(mode);
                   setTransformMode(null);
                 }
               }}
-              disabled={disabled}
+              disabled={disabled || placementMode}
               className={`p-2 rounded-lg transition-colors w-full flex items-center gap-2 ${
-                disabled
+                disabled || placementMode
                   ? 'text-white/30 cursor-not-allowed'
                   : editMode === mode 
                     ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30'
                     : 'text-white/90 hover:bg-white/5'
               }`}
-              title={disabled ? `${title} (Not available for this object type)` : title}
+              title={
+                placementMode 
+                  ? 'Finish current placement first'
+                  : disabled 
+                    ? `${title} (Not available for this object type)` 
+                    : title
+              }
             >
               <Icon className="w-5 h-5" />
               <span className="text-sm font-medium">{title}</span>
