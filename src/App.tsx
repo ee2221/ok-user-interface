@@ -6,6 +6,7 @@ import LayersPanel from './components/LayersPanel';
 import ObjectProperties from './components/ObjectProperties';
 import EditControls from './components/EditControls';
 import CameraPerspectivePanel from './components/CameraPerspectivePanel';
+import ObjectLibrary from './components/ObjectLibrary';
 
 function App() {
   return (
@@ -13,6 +14,7 @@ function App() {
       <Scene />
       <ActionsToolbar />
       <Toolbar />
+      <ObjectLibrary />
       <LayersPanel />
       <ObjectProperties />
       <EditControls />
