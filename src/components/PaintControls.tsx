@@ -83,7 +83,7 @@ const PaintControls: React.FC = () => {
 
         {/* Color Selection */}
         <div>
-          <h3 className="text-sm font-medium text-white/70 mb-2">Color</h3>
+          <h3 className="text-sm font-medium text-white/70 mb-2">Paint Color</h3>
           <div className="flex gap-2 mb-2">
             <input
               type="color"
@@ -138,7 +138,7 @@ const PaintControls: React.FC = () => {
           {/* Opacity */}
           <div>
             <div className="flex justify-between items-center mb-1">
-              <label className="text-xs text-white/50">Opacity</label>
+              <label className="text-xs text-white/50">Paint Opacity</label>
               <span className="text-xs text-white/70">{Math.round(paintSettings.opacity * 100)}%</span>
             </div>
             <input
@@ -220,18 +220,19 @@ const PaintControls: React.FC = () => {
             className="flex-1 px-3 py-2 bg-red-500/20 text-red-400 rounded-lg hover:bg-red-500/30 transition-colors flex items-center justify-center gap-2 text-sm font-medium"
           >
             <Eraser className="w-4 h-4" />
-            Clear
+            Reset to Original
           </button>
         </div>
 
         {/* Instructions */}
         <div className="text-xs text-white/50 bg-[#2a2a2a] rounded-lg p-2">
-          <p className="font-medium mb-1">How to Paint:</p>
+          <p className="font-medium mb-1 text-blue-400">Paint Mode Active:</p>
           <ul className="space-y-1">
-            <li>• Click and drag on the object to paint</li>
-            <li>• Hold Shift for straight lines</li>
-            <li>• Use different brush types for various effects</li>
-            <li>• Adjust size and opacity for better control</li>
+            <li>• Object remains opaque in original color</li>
+            <li>• Click and drag to paint on the surface</li>
+            <li>• Paint appears exactly where you click</li>
+            <li>• Use different brushes for various effects</li>
+            <li>• Adjust opacity to blend with base color</li>
           </ul>
         </div>
       </div>

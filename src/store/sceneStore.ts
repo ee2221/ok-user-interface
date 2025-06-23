@@ -82,6 +82,7 @@ interface SceneState {
   paintTexture: THREE.Texture | null;
   paintContext: CanvasRenderingContext2D | null;
   lastPaintPosition: THREE.Vector2 | null;
+  originalMaterial: THREE.Material | null;
   // Placement state
   placementMode: boolean;
   pendingObject: {
@@ -119,6 +120,7 @@ interface SceneState {
   paintAtPosition: (uv: THREE.Vector2, pressure?: number) => void;
   paintStroke: (fromUV: THREE.Vector2, toUV: THREE.Vector2, pressure?: number) => void;
   clearPaintTexture: () => void;
+  exitPaintMode: () => void;
   // Group management
   createGroup: (name: string, objectIds?: string[]) => void;
   removeGroup: (groupId: string) => void;
@@ -199,6 +201,7 @@ export const useSceneStore = create<SceneState>((set, get) => ({
   paintTexture: null,
   paintContext: null,
   lastPaintPosition: null,
+  originalMaterial: null,
   // Placement state
   placementMode: false,
   pendingObject: null,
@@ -300,6 +303,11 @@ export const useSceneStore = create<SceneState>((set, get) => ({
   
   setEditMode: (mode) => 
     set((state) => {
+      // If exiting paint mode, restore original material
+      if (state.editMode === 'paint' && mode !== 'paint') {
+        get().exitPaintMode();
+      }
+
       // If trying to set edge mode on unsupported geometry, prevent it
       if (mode === 'edge' && state.selectedObject instanceof THREE.Mesh) {
         const geometry = state.selectedObject.geometry;
@@ -704,6 +712,11 @@ export const useSceneStore = create<SceneState>((set, get) => ({
     set((state) => {
       if (!(object instanceof THREE.Mesh)) return state;
 
+      const material = object.material as THREE.MeshStandardMaterial;
+      
+      // Store the original material properties
+      const originalMaterial = material.clone();
+
       // Create a high-resolution canvas for painting
       const canvas = document.createElement('canvas');
       canvas.width = 1024;
@@ -716,8 +729,10 @@ export const useSceneStore = create<SceneState>((set, get) => ({
       ctx.imageSmoothingEnabled = true;
       ctx.imageSmoothingQuality = 'high';
 
-      // Fill with transparent background (so original material shows through)
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      // Fill canvas with the object's current color to maintain opacity
+      const currentColor = '#' + material.color.getHexString();
+      ctx.fillStyle = currentColor;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
 
       // Create texture from canvas
       const texture = new THREE.CanvasTexture(canvas);
@@ -726,23 +741,18 @@ export const useSceneStore = create<SceneState>((set, get) => ({
       texture.wrapS = THREE.ClampToEdgeWrapping;
       texture.wrapT = THREE.ClampToEdgeWrapping;
 
-      // Apply texture to object material
-      const material = object.material as THREE.MeshStandardMaterial;
-      
-      // Store original map if it exists
-      if (material.map && material.map !== texture) {
-        material.map.dispose();
-      }
-      
+      // Apply texture to object material while keeping it opaque
       material.map = texture;
-      material.transparent = true;
+      material.transparent = false; // Keep object opaque
+      material.opacity = 1.0; // Full opacity
       material.needsUpdate = true;
 
       return {
         paintCanvas: canvas,
         paintTexture: texture,
         paintContext: ctx,
-        lastPaintPosition: null
+        lastPaintPosition: null,
+        originalMaterial: originalMaterial
       };
     }),
 
@@ -866,7 +876,7 @@ export const useSceneStore = create<SceneState>((set, get) => ({
                 data[i] = colorObj.r * 255;     // Red
                 data[i + 1] = colorObj.g * 255; // Green
                 data[i + 2] = colorObj.b * 255; // Blue
-                data[i + 3] = opacity * 255;    // Alpha
+                data[i + 3] = 255;              // Full alpha for opacity
               }
             }
             
@@ -964,19 +974,59 @@ export const useSceneStore = create<SceneState>((set, get) => ({
 
   clearPaintTexture: () =>
     set((state) => {
-      if (!state.paintContext || !state.paintCanvas) return state;
+      if (!state.paintContext || !state.paintCanvas || !state.selectedObject) return state;
 
       const ctx = state.paintContext;
       const canvas = state.paintCanvas;
 
-      // Clear the canvas completely (transparent)
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      // Get the original object color
+      const material = (state.selectedObject as THREE.Mesh).material as THREE.MeshStandardMaterial;
+      const originalColor = state.originalMaterial 
+        ? '#' + (state.originalMaterial as THREE.MeshStandardMaterial).color.getHexString()
+        : '#44aa88';
+
+      // Fill canvas with original color to maintain opacity
+      ctx.fillStyle = originalColor;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
 
       if (state.paintTexture) {
         state.paintTexture.needsUpdate = true;
       }
 
       return state;
+    }),
+
+  exitPaintMode: () =>
+    set((state) => {
+      if (!state.selectedObject || !state.originalMaterial) return state;
+
+      // Restore original material properties
+      const material = (state.selectedObject as THREE.Mesh).material as THREE.MeshStandardMaterial;
+      const original = state.originalMaterial as THREE.MeshStandardMaterial;
+      
+      // Only restore if we're not keeping the painted texture
+      if (state.paintTexture) {
+        // Keep the painted texture but restore other properties
+        material.transparent = original.transparent;
+        material.opacity = original.opacity;
+        material.needsUpdate = true;
+      } else {
+        // Restore completely
+        material.map = original.map;
+        material.color.copy(original.color);
+        material.transparent = original.transparent;
+        material.opacity = original.opacity;
+        material.needsUpdate = true;
+      }
+
+      return {
+        originalMaterial: null,
+        paintCanvas: null,
+        paintTexture: null,
+        paintContext: null,
+        lastPaintPosition: null,
+        isPainting: false
+      };
     }),
 
   // Group management functions
