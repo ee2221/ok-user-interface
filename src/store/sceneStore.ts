@@ -1,8 +1,21 @@
 import { create } from 'zustand';
 import * as THREE from 'three';
 
-type EditMode = 'vertex' | 'edge' | null;
+type EditMode = 'vertex' | 'edge' | 'paint' | null;
 type CameraPerspective = 'perspective' | 'front' | 'back' | 'left' | 'right' | 'top' | 'bottom';
+
+type BrushType = 'solid' | 'airbrush' | 'splatter' | 'lines' | 'dots' | 'noise' | 'gradient';
+
+interface PaintSettings {
+  brushType: BrushType;
+  color: string;
+  size: number;
+  opacity: number;
+  intensity: number;
+  spacing: number;
+  angle: number;
+  randomness: number;
+}
 
 interface Group {
   id: string;
@@ -62,7 +75,12 @@ interface SceneState {
   historyIndex: number;
   canUndo: boolean;
   canRedo: boolean;
-  // New placement state
+  // Paint system state
+  paintSettings: PaintSettings;
+  isPainting: boolean;
+  paintCanvas: HTMLCanvasElement | null;
+  paintTexture: THREE.Texture | null;
+  // Placement state
   placementMode: boolean;
   pendingObject: {
     geometry: () => THREE.BufferGeometry | THREE.Group;
@@ -91,6 +109,13 @@ interface SceneState {
   setIsDraggingEdge: (isDragging: boolean) => void;
   updateCylinderVertices: (vertexCount: number) => void;
   updateSphereVertices: (vertexCount: number) => void;
+  // Paint system functions
+  setPaintSettings: (settings: Partial<PaintSettings>) => void;
+  initializePaintTexture: (object: THREE.Object3D) => void;
+  startPainting: () => void;
+  stopPainting: () => void;
+  paintAtPosition: (uv: THREE.Vector2, pressure?: number) => void;
+  clearPaintTexture: () => void;
   // Group management
   createGroup: (name: string, objectIds?: string[]) => void;
   removeGroup: (groupId: string) => void;
@@ -101,14 +126,14 @@ interface SceneState {
   toggleGroupLock: (groupId: string) => void;
   updateGroupName: (groupId: string, name: string) => void;
   moveObjectsToGroup: (objectIds: string[], groupId: string | null) => void;
-  // New action functions
+  // Action functions
   undo: () => void;
   redo: () => void;
   duplicateObject: () => void;
   mirrorObject: () => void;
   zoomIn: () => void;
   zoomOut: () => void;
-  // New placement functions
+  // Placement functions
   startObjectPlacement: (objectDef: { geometry: () => THREE.BufferGeometry | THREE.Group; name: string; color?: string }) => void;
   placeObjectAt: (position: THREE.Vector3) => void;
   cancelObjectPlacement: () => void;
@@ -155,7 +180,21 @@ export const useSceneStore = create<SceneState>((set, get) => ({
   historyIndex: -1,
   canUndo: false,
   canRedo: false,
-  // New placement state
+  // Paint system state
+  paintSettings: {
+    brushType: 'solid',
+    color: '#ff0000',
+    size: 20,
+    opacity: 0.8,
+    intensity: 1.0,
+    spacing: 1.0,
+    angle: 0,
+    randomness: 0.0
+  },
+  isPainting: false,
+  paintCanvas: null,
+  paintTexture: null,
+  // Placement state
   placementMode: false,
   pendingObject: null,
 
@@ -650,6 +689,175 @@ export const useSceneStore = create<SceneState>((set, get) => ({
       };
     }),
 
+  // Paint system functions
+  setPaintSettings: (settings) =>
+    set((state) => ({
+      paintSettings: { ...state.paintSettings, ...settings }
+    })),
+
+  initializePaintTexture: (object) =>
+    set((state) => {
+      if (!(object instanceof THREE.Mesh)) return state;
+
+      // Create a canvas for painting
+      const canvas = document.createElement('canvas');
+      canvas.width = 512;
+      canvas.height = 512;
+      
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return state;
+
+      // Fill with white background
+      ctx.fillStyle = 'white';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // Create texture from canvas
+      const texture = new THREE.CanvasTexture(canvas);
+      texture.needsUpdate = true;
+
+      // Apply texture to object material
+      const material = object.material as THREE.MeshStandardMaterial;
+      if (material.map) {
+        material.map.dispose();
+      }
+      material.map = texture;
+      material.needsUpdate = true;
+
+      return {
+        paintCanvas: canvas,
+        paintTexture: texture
+      };
+    }),
+
+  startPainting: () => set({ isPainting: true }),
+  stopPainting: () => set({ isPainting: false }),
+
+  paintAtPosition: (uv, pressure = 1.0) =>
+    set((state) => {
+      if (!state.paintCanvas || !state.paintTexture) return state;
+
+      const canvas = state.paintCanvas;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return state;
+
+      const { paintSettings } = state;
+      const x = uv.x * canvas.width;
+      const y = (1 - uv.y) * canvas.height; // Flip Y coordinate
+
+      const size = paintSettings.size * pressure;
+      const opacity = paintSettings.opacity * pressure;
+
+      ctx.globalAlpha = opacity;
+      ctx.fillStyle = paintSettings.color;
+
+      switch (paintSettings.brushType) {
+        case 'solid':
+          ctx.beginPath();
+          ctx.arc(x, y, size / 2, 0, Math.PI * 2);
+          ctx.fill();
+          break;
+
+        case 'airbrush':
+          const gradient = ctx.createRadialGradient(x, y, 0, x, y, size / 2);
+          gradient.addColorStop(0, paintSettings.color);
+          gradient.addColorStop(1, 'transparent');
+          ctx.fillStyle = gradient;
+          ctx.beginPath();
+          ctx.arc(x, y, size / 2, 0, Math.PI * 2);
+          ctx.fill();
+          break;
+
+        case 'splatter':
+          for (let i = 0; i < 20; i++) {
+            const offsetX = (Math.random() - 0.5) * size;
+            const offsetY = (Math.random() - 0.5) * size;
+            const dotSize = Math.random() * 3 + 1;
+            ctx.beginPath();
+            ctx.arc(x + offsetX, y + offsetY, dotSize, 0, Math.PI * 2);
+            ctx.fill();
+          }
+          break;
+
+        case 'lines':
+          ctx.strokeStyle = paintSettings.color;
+          ctx.lineWidth = 2;
+          const angle = paintSettings.angle * Math.PI / 180;
+          const lineLength = size;
+          for (let i = -size/2; i < size/2; i += 4) {
+            const startX = x + Math.cos(angle + Math.PI/2) * i;
+            const startY = y + Math.sin(angle + Math.PI/2) * i;
+            const endX = startX + Math.cos(angle) * lineLength;
+            const endY = startY + Math.sin(angle) * lineLength;
+            ctx.beginPath();
+            ctx.moveTo(startX, startY);
+            ctx.lineTo(endX, endY);
+            ctx.stroke();
+          }
+          break;
+
+        case 'dots':
+          for (let i = 0; i < 10; i++) {
+            const offsetX = (Math.random() - 0.5) * size;
+            const offsetY = (Math.random() - 0.5) * size;
+            ctx.beginPath();
+            ctx.arc(x + offsetX, y + offsetY, 2, 0, Math.PI * 2);
+            ctx.fill();
+          }
+          break;
+
+        case 'noise':
+          const imageData = ctx.getImageData(x - size/2, y - size/2, size, size);
+          const data = imageData.data;
+          const color = new THREE.Color(paintSettings.color);
+          
+          for (let i = 0; i < data.length; i += 4) {
+            if (Math.random() < paintSettings.intensity) {
+              data[i] = color.r * 255;     // Red
+              data[i + 1] = color.g * 255; // Green
+              data[i + 2] = color.b * 255; // Blue
+              data[i + 3] = opacity * 255; // Alpha
+            }
+          }
+          
+          ctx.putImageData(imageData, x - size/2, y - size/2);
+          break;
+
+        case 'gradient':
+          const gradientRadius = size / 2;
+          const gradientFill = ctx.createRadialGradient(x, y, 0, x, y, gradientRadius);
+          gradientFill.addColorStop(0, paintSettings.color);
+          gradientFill.addColorStop(0.5, paintSettings.color + '80');
+          gradientFill.addColorStop(1, 'transparent');
+          ctx.fillStyle = gradientFill;
+          ctx.beginPath();
+          ctx.arc(x, y, gradientRadius, 0, Math.PI * 2);
+          ctx.fill();
+          break;
+      }
+
+      // Update texture
+      state.paintTexture.needsUpdate = true;
+
+      return state;
+    }),
+
+  clearPaintTexture: () =>
+    set((state) => {
+      if (!state.paintCanvas) return state;
+
+      const ctx = state.paintCanvas.getContext('2d');
+      if (!ctx) return state;
+
+      ctx.fillStyle = 'white';
+      ctx.fillRect(0, 0, state.paintCanvas.width, state.paintCanvas.height);
+
+      if (state.paintTexture) {
+        state.paintTexture.needsUpdate = true;
+      }
+
+      return state;
+    }),
+
   // Group management functions
   createGroup: (name, objectIds = []) =>
     set((state) => {
@@ -866,7 +1074,7 @@ export const useSceneStore = create<SceneState>((set, get) => ({
       };
     }),
 
-  // New action functions
+  // Action functions
   undo: () =>
     set((state) => {
       if (state.historyIndex <= 0) return state;
@@ -966,7 +1174,7 @@ export const useSceneStore = create<SceneState>((set, get) => ({
       cameraZoom: Math.max(state.cameraZoom / 1.2, 0.1)
     })),
 
-  // New placement functions
+  // Placement functions
   startObjectPlacement: (objectDef) =>
     set({
       placementMode: true,

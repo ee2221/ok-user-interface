@@ -445,6 +445,87 @@ const EdgeLines = ({ geometry, object }) => {
   ) : null;
 };
 
+// Paint interaction component
+const PaintInteraction = () => {
+  const { 
+    editMode, 
+    selectedObject, 
+    isPainting, 
+    startPainting, 
+    stopPainting, 
+    paintAtPosition,
+    initializePaintTexture,
+    isObjectLocked
+  } = useSceneStore();
+  const { camera, raycaster, pointer } = useThree();
+
+  useEffect(() => {
+    if (editMode !== 'paint' || !selectedObject || !(selectedObject instanceof THREE.Mesh)) return;
+
+    // Check if object is locked
+    const selectedObj = useSceneStore.getState().objects.find(obj => obj.object === selectedObject);
+    if (selectedObj && isObjectLocked(selectedObj.id)) return;
+
+    // Initialize paint texture when entering paint mode
+    initializePaintTexture(selectedObject);
+
+    const handlePointerDown = (event) => {
+      if (event.button === 0) { // Left click
+        startPainting();
+        handlePaint(event);
+      }
+    };
+
+    const handlePointerMove = (event) => {
+      if (isPainting) {
+        handlePaint(event);
+      }
+    };
+
+    const handlePointerUp = () => {
+      stopPainting();
+    };
+
+    const handlePaint = (event) => {
+      raycaster.setFromCamera(pointer, camera);
+      const intersects = raycaster.intersectObject(selectedObject);
+      
+      if (intersects.length > 0) {
+        const intersection = intersects[0];
+        if (intersection.uv) {
+          // Calculate pressure based on pointer pressure or default to 1
+          const pressure = event.pressure || 1.0;
+          paintAtPosition(intersection.uv, pressure);
+        }
+      }
+    };
+
+    window.addEventListener('pointerdown', handlePointerDown);
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', handlePointerUp);
+
+    return () => {
+      window.removeEventListener('pointerdown', handlePointerDown);
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerUp);
+    };
+  }, [
+    editMode, 
+    selectedObject, 
+    isPainting, 
+    camera, 
+    raycaster, 
+    pointer,
+    startPainting,
+    stopPainting,
+    paintAtPosition,
+    initializePaintTexture,
+    isObjectLocked
+  ]);
+
+  return null;
+};
+
 const EditModeOverlay = () => {
   const { 
     selectedObject, 
@@ -516,6 +597,7 @@ const EditModeOverlay = () => {
     <>
       <VertexPoints geometry={selectedObject.geometry} object={selectedObject} />
       <EdgeLines geometry={selectedObject.geometry} object={selectedObject} />
+      <PaintInteraction />
     </>
   );
 };
@@ -816,7 +898,7 @@ const Scene: React.FC = () => {
           )
         ))}
 
-        {selectedObject && transformMode && canSelectObject(selectedObject) && !placementMode && (
+        {selectedObject && transformMode && canSelectObject(selectedObject) && !placementMode && editMode !== 'paint' && (
           <TransformControls
             object={selectedObject}
             mode={transformMode}
