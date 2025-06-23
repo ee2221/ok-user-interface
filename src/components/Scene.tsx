@@ -471,6 +471,7 @@ const PaintInteraction = () => {
 
     const handlePointerDown = (event) => {
       if (event.button === 0) { // Left click
+        event.preventDefault();
         startPainting();
         handlePaint(event);
       }
@@ -478,37 +479,48 @@ const PaintInteraction = () => {
 
     const handlePointerMove = (event) => {
       if (isPainting) {
+        event.preventDefault();
         handlePaint(event);
       }
     };
 
-    const handlePointerUp = () => {
-      stopPainting();
+    const handlePointerUp = (event) => {
+      if (event.button === 0) { // Left click release
+        event.preventDefault();
+        stopPainting();
+      }
     };
 
     const handlePaint = (event) => {
+      // Update raycaster with current pointer position
       raycaster.setFromCamera(pointer, camera);
-      const intersects = raycaster.intersectObject(selectedObject);
+      const intersects = raycaster.intersectObject(selectedObject, false);
       
       if (intersects.length > 0) {
         const intersection = intersects[0];
         if (intersection.uv) {
           // Calculate pressure based on pointer pressure or default to 1
-          const pressure = event.pressure || 1.0;
+          const pressure = (event as any).pressure || 1.0;
           paintAtPosition(intersection.uv, pressure);
         }
       }
     };
 
-    window.addEventListener('pointerdown', handlePointerDown);
-    window.addEventListener('pointermove', handlePointerMove);
-    window.addEventListener('pointerup', handlePointerUp);
+    // Add event listeners to the canvas element
+    const canvas = document.querySelector('canvas');
+    if (canvas) {
+      canvas.addEventListener('pointerdown', handlePointerDown);
+      canvas.addEventListener('pointermove', handlePointerMove);
+      canvas.addEventListener('pointerup', handlePointerUp);
+      canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 
-    return () => {
-      window.removeEventListener('pointerdown', handlePointerDown);
-      window.removeEventListener('pointermove', handlePointerMove);
-      window.removeEventListener('pointerup', handlePointerUp);
-    };
+      return () => {
+        canvas.removeEventListener('pointerdown', handlePointerDown);
+        canvas.removeEventListener('pointermove', handlePointerMove);
+        canvas.removeEventListener('pointerup', handlePointerUp);
+        canvas.removeEventListener('contextmenu', (e) => e.preventDefault());
+      };
+    }
   }, [
     editMode, 
     selectedObject, 
@@ -890,7 +902,7 @@ const Scene: React.FC = () => {
               object={object}
               onClick={(e) => {
                 e.stopPropagation();
-                if (!placementMode && canSelectObject(object)) {
+                if (!placementMode && canSelectObject(object) && editMode !== 'paint') {
                   setSelectedObject(object);
                 }
               }}
