@@ -86,6 +86,7 @@ interface SceneState {
     positions: THREE.Vector2[];
     settings: PaintSettings;
   }>;
+  originalMaterial: THREE.Material | null;
   // Placement state
   placementMode: boolean;
   pendingObject: {
@@ -203,6 +204,7 @@ export const useSceneStore = create<SceneState>((set, get) => ({
   paintContext: null,
   lastPaintPosition: null,
   paintStrokes: [],
+  originalMaterial: null,
   // Placement state
   placementMode: false,
   pendingObject: null,
@@ -301,7 +303,8 @@ export const useSceneStore = create<SceneState>((set, get) => ({
         paintCanvas: null,
         paintTexture: null,
         paintContext: null,
-        paintStrokes: []
+        paintStrokes: [],
+        originalMaterial: null
       };
     }),
 
@@ -713,6 +716,9 @@ export const useSceneStore = create<SceneState>((set, get) => ({
     set((state) => {
       if (!(object instanceof THREE.Mesh)) return state;
 
+      // Store the original material
+      const originalMaterial = object.material as THREE.MeshStandardMaterial;
+
       // Create a high-resolution canvas for painting
       const canvas = document.createElement('canvas');
       canvas.width = 1024;
@@ -721,38 +727,45 @@ export const useSceneStore = create<SceneState>((set, get) => ({
       const ctx = canvas.getContext('2d');
       if (!ctx) return state;
 
-      // Fill with transparent background to preserve original material
+      // Fill with transparent background
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.fillStyle = 'rgba(255, 255, 255, 0)';
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
 
       // Create texture from canvas
       const texture = new THREE.CanvasTexture(canvas);
       texture.needsUpdate = true;
       texture.flipY = false; // Important for proper UV mapping
+      texture.wrapS = THREE.RepeatWrapping;
+      texture.wrapT = THREE.RepeatWrapping;
 
-      // Store original material properties
-      const material = object.material as THREE.MeshStandardMaterial;
-      const originalMap = material.map;
-
-      // Create a new material that combines original texture with paint
-      if (originalMap) {
-        // If there's already a texture, we need to blend it
-        material.map = texture;
+      // Clone the original material to avoid modifying the original
+      const paintMaterial = originalMaterial.clone();
+      
+      // If there's an existing texture, we'll blend it with the paint
+      if (originalMaterial.map) {
+        // For now, we'll just overlay the paint texture
+        // In a more advanced implementation, you could use a shader to blend textures
+        paintMaterial.map = texture;
+        paintMaterial.transparent = true;
+        paintMaterial.alphaTest = 0.01; // Only render pixels with some opacity
       } else {
-        // If no texture, just apply the paint texture
-        material.map = texture;
+        // No existing texture, just use the paint texture
+        paintMaterial.map = texture;
+        paintMaterial.transparent = true;
+        paintMaterial.alphaTest = 0.01;
       }
       
-      material.transparent = true;
-      material.needsUpdate = true;
+      paintMaterial.needsUpdate = true;
+
+      // Apply the new material to the object
+      object.material = paintMaterial;
 
       return {
         paintCanvas: canvas,
         paintTexture: texture,
         paintContext: ctx,
         lastPaintPosition: null,
-        paintStrokes: []
+        paintStrokes: [],
+        originalMaterial: originalMaterial
       };
     }),
 
@@ -810,21 +823,28 @@ export const useSceneStore = create<SceneState>((set, get) => ({
 
   clearPaintTexture: () =>
     set((state) => {
-      if (!state.paintCanvas || !state.paintContext) return state;
+      if (!state.paintCanvas || !state.paintContext || !state.selectedObject) return state;
 
       const ctx = state.paintContext;
       
       // Clear the canvas completely
       ctx.clearRect(0, 0, state.paintCanvas.width, state.paintCanvas.height);
-      ctx.fillStyle = 'rgba(255, 255, 255, 0)';
-      ctx.fillRect(0, 0, state.paintCanvas.width, state.paintCanvas.height);
 
       if (state.paintTexture) {
         state.paintTexture.needsUpdate = true;
       }
 
+      // Restore original material if we have it
+      if (state.originalMaterial && state.selectedObject instanceof THREE.Mesh) {
+        state.selectedObject.material = state.originalMaterial;
+      }
+
       return {
-        paintStrokes: []
+        paintStrokes: [],
+        paintCanvas: null,
+        paintTexture: null,
+        paintContext: null,
+        originalMaterial: null
       };
     }),
 
