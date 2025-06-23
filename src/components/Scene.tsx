@@ -445,110 +445,6 @@ const EdgeLines = ({ geometry, object }) => {
   ) : null;
 };
 
-// Paint interaction component
-const PaintInteraction = () => {
-  const { 
-    editMode, 
-    selectedObject, 
-    isPainting, 
-    startPainting, 
-    stopPainting, 
-    paintAtPosition,
-    initializePaintTexture,
-    isObjectLocked
-  } = useSceneStore();
-  const { camera, raycaster, pointer } = useThree();
-
-  useEffect(() => {
-    if (editMode !== 'paint' || !selectedObject || !(selectedObject instanceof THREE.Mesh)) return;
-
-    // Check if object is locked
-    const selectedObj = useSceneStore.getState().objects.find(obj => obj.object === selectedObject);
-    if (selectedObj && isObjectLocked(selectedObj.id)) return;
-
-    // Initialize paint texture when entering paint mode
-    initializePaintTexture(selectedObject);
-
-    const handlePointerDown = (event) => {
-      if (event.button === 0) { // Left click only
-        event.preventDefault();
-        startPainting();
-        handlePaint(event);
-      }
-    };
-
-    const handlePointerMove = (event) => {
-      if (isPainting && event.buttons === 1) { // Only when left button is pressed
-        event.preventDefault();
-        handlePaint(event);
-      }
-    };
-
-    const handlePointerUp = (event) => {
-      if (event.button === 0) { // Left click release
-        event.preventDefault();
-        stopPainting();
-      }
-    };
-
-    const handlePaint = (event) => {
-      // Update raycaster with current pointer position
-      raycaster.setFromCamera(pointer, camera);
-      const intersects = raycaster.intersectObject(selectedObject, false);
-      
-      if (intersects.length > 0) {
-        const intersection = intersects[0];
-        if (intersection.uv) {
-          // Calculate pressure based on pointer pressure or default to 1
-          const pressure = event.pressure || 1.0;
-          paintAtPosition(intersection.uv, pressure);
-        }
-      }
-    };
-
-    // Prevent context menu on right click during paint mode
-    const handleContextMenu = (event) => {
-      event.preventDefault();
-    };
-
-    // Add event listeners to the canvas element specifically
-    const canvas = document.querySelector('canvas');
-    if (canvas) {
-      canvas.addEventListener('pointerdown', handlePointerDown);
-      canvas.addEventListener('pointermove', handlePointerMove);
-      canvas.addEventListener('pointerup', handlePointerUp);
-      canvas.addEventListener('contextmenu', handleContextMenu);
-      
-      // Set cursor style for paint mode
-      canvas.style.cursor = 'crosshair';
-    }
-
-    return () => {
-      if (canvas) {
-        canvas.removeEventListener('pointerdown', handlePointerDown);
-        canvas.removeEventListener('pointermove', handlePointerMove);
-        canvas.removeEventListener('pointerup', handlePointerUp);
-        canvas.removeEventListener('contextmenu', handleContextMenu);
-        canvas.style.cursor = 'default';
-      }
-    };
-  }, [
-    editMode, 
-    selectedObject, 
-    isPainting, 
-    camera, 
-    raycaster, 
-    pointer,
-    startPainting,
-    stopPainting,
-    paintAtPosition,
-    initializePaintTexture,
-    isObjectLocked
-  ]);
-
-  return null;
-};
-
 const EditModeOverlay = () => {
   const { 
     selectedObject, 
@@ -566,7 +462,7 @@ const EditModeOverlay = () => {
   useEffect(() => {
     if (!selectedObject || !editMode || !(selectedObject instanceof THREE.Mesh)) return;
 
-    // Check if object is locked before allowing edit
+    // Check if object is locked
     const selectedObj = useSceneStore.getState().objects.find(obj => obj.object === selectedObject);
     const objectLocked = selectedObj ? isObjectLocked(selectedObj.id) : false;
     if (objectLocked) return;
@@ -620,7 +516,6 @@ const EditModeOverlay = () => {
     <>
       <VertexPoints geometry={selectedObject.geometry} object={selectedObject} />
       <EdgeLines geometry={selectedObject.geometry} object={selectedObject} />
-      <PaintInteraction />
     </>
   );
 };
@@ -913,7 +808,7 @@ const Scene: React.FC = () => {
               object={object}
               onClick={(e) => {
                 e.stopPropagation();
-                if (!placementMode && canSelectObject(object) && editMode !== 'paint') {
+                if (!placementMode && canSelectObject(object)) {
                   setSelectedObject(object);
                 }
               }}
@@ -921,7 +816,7 @@ const Scene: React.FC = () => {
           )
         ))}
 
-        {selectedObject && transformMode && canSelectObject(selectedObject) && !placementMode && editMode !== 'paint' && (
+        {selectedObject && transformMode && canSelectObject(selectedObject) && !placementMode && (
           <TransformControls
             object={selectedObject}
             mode={transformMode}

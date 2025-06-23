@@ -5,7 +5,6 @@ import {
   Maximize, 
   Projector as Vector, 
   Link,
-  Paintbrush,
   Cuboid, 
   Cherry, 
   Cylinder, 
@@ -409,11 +408,6 @@ const Toolbar: React.FC = () => {
     );
   };
 
-  // Check if paint mode should be disabled
-  const isPaintModeDisabled = () => {
-    return !selectedObject || !(selectedObject instanceof THREE.Mesh);
-  };
-
   const editTools = [
     {
       icon: Vector,
@@ -428,13 +422,6 @@ const Toolbar: React.FC = () => {
       title: 'Edit Edges',
       type: 'edit',
       disabled: isEdgeEditingDisabled()
-    },
-    {
-      icon: Paintbrush,
-      mode: 'paint',
-      title: 'Paint Texture',
-      type: 'edit',
-      disabled: isPaintModeDisabled()
     }
   ] as const;
 
