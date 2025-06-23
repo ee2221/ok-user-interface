@@ -80,6 +80,8 @@ interface SceneState {
   isPainting: boolean;
   paintCanvas: HTMLCanvasElement | null;
   paintTexture: THREE.Texture | null;
+  paintContext: CanvasRenderingContext2D | null;
+  lastPaintPosition: THREE.Vector2 | null;
   // Placement state
   placementMode: boolean;
   pendingObject: {
@@ -115,6 +117,7 @@ interface SceneState {
   startPainting: () => void;
   stopPainting: () => void;
   paintAtPosition: (uv: THREE.Vector2, pressure?: number) => void;
+  paintStroke: (fromUV: THREE.Vector2, toUV: THREE.Vector2, pressure?: number) => void;
   clearPaintTexture: () => void;
   // Group management
   createGroup: (name: string, objectIds?: string[]) => void;
@@ -194,6 +197,8 @@ export const useSceneStore = create<SceneState>((set, get) => ({
   isPainting: false,
   paintCanvas: null,
   paintTexture: null,
+  paintContext: null,
+  lastPaintPosition: null,
   // Placement state
   placementMode: false,
   pendingObject: null,
@@ -699,141 +704,257 @@ export const useSceneStore = create<SceneState>((set, get) => ({
     set((state) => {
       if (!(object instanceof THREE.Mesh)) return state;
 
-      // Create a canvas for painting
+      // Create a high-resolution canvas for painting
       const canvas = document.createElement('canvas');
-      canvas.width = 512;
-      canvas.height = 512;
+      canvas.width = 1024;
+      canvas.height = 1024;
       
       const ctx = canvas.getContext('2d');
       if (!ctx) return state;
 
-      // Fill with white background
-      ctx.fillStyle = 'white';
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      // Set up canvas for better rendering
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+
+      // Fill with transparent background (so original material shows through)
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
 
       // Create texture from canvas
       const texture = new THREE.CanvasTexture(canvas);
       texture.needsUpdate = true;
+      texture.flipY = false; // Important for correct UV mapping
+      texture.wrapS = THREE.ClampToEdgeWrapping;
+      texture.wrapT = THREE.ClampToEdgeWrapping;
 
       // Apply texture to object material
       const material = object.material as THREE.MeshStandardMaterial;
-      if (material.map) {
+      
+      // Store original map if it exists
+      if (material.map && material.map !== texture) {
         material.map.dispose();
       }
+      
       material.map = texture;
+      material.transparent = true;
       material.needsUpdate = true;
 
       return {
         paintCanvas: canvas,
-        paintTexture: texture
+        paintTexture: texture,
+        paintContext: ctx,
+        lastPaintPosition: null
       };
     }),
 
   startPainting: () => set({ isPainting: true }),
-  stopPainting: () => set({ isPainting: false }),
+  
+  stopPainting: () => set({ 
+    isPainting: false, 
+    lastPaintPosition: null 
+  }),
 
   paintAtPosition: (uv, pressure = 1.0) =>
     set((state) => {
-      if (!state.paintCanvas || !state.paintTexture) return state;
+      if (!state.paintContext || !state.paintTexture || !state.paintCanvas) return state;
 
+      const ctx = state.paintContext;
       const canvas = state.paintCanvas;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) return state;
-
       const { paintSettings } = state;
+
+      // Convert UV coordinates to canvas coordinates
       const x = uv.x * canvas.width;
-      const y = (1 - uv.y) * canvas.height; // Flip Y coordinate
+      const y = (1 - uv.y) * canvas.height; // Flip Y coordinate for correct mapping
+
+      const currentPosition = new THREE.Vector2(x, y);
+
+      // If we have a last position and we're painting, draw a stroke
+      if (state.lastPaintPosition && state.isPainting) {
+        get().paintStroke(
+          new THREE.Vector2(state.lastPaintPosition.x / canvas.width, 1 - state.lastPaintPosition.y / canvas.height),
+          uv,
+          pressure
+        );
+      } else {
+        // Single paint dab
+        const size = paintSettings.size * pressure;
+        const opacity = paintSettings.opacity * pressure;
+
+        // Set up paint properties
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.globalAlpha = opacity;
+
+        // Parse color to ensure it's valid
+        const color = paintSettings.color;
+        
+        switch (paintSettings.brushType) {
+          case 'solid':
+            ctx.fillStyle = color;
+            ctx.beginPath();
+            ctx.arc(x, y, size / 2, 0, Math.PI * 2);
+            ctx.fill();
+            break;
+
+          case 'airbrush':
+            const gradient = ctx.createRadialGradient(x, y, 0, x, y, size / 2);
+            gradient.addColorStop(0, color);
+            gradient.addColorStop(1, color + '00'); // Transparent version
+            ctx.fillStyle = gradient;
+            ctx.beginPath();
+            ctx.arc(x, y, size / 2, 0, Math.PI * 2);
+            ctx.fill();
+            break;
+
+          case 'splatter':
+            ctx.fillStyle = color;
+            const splatCount = Math.floor(paintSettings.intensity * 30);
+            for (let i = 0; i < splatCount; i++) {
+              const offsetX = (Math.random() - 0.5) * size;
+              const offsetY = (Math.random() - 0.5) * size;
+              const dotSize = Math.random() * 4 + 1;
+              ctx.beginPath();
+              ctx.arc(x + offsetX, y + offsetY, dotSize, 0, Math.PI * 2);
+              ctx.fill();
+            }
+            break;
+
+          case 'lines':
+            ctx.strokeStyle = color;
+            ctx.lineWidth = 3;
+            ctx.lineCap = 'round';
+            const angle = paintSettings.angle * Math.PI / 180;
+            const lineLength = size;
+            const lineSpacing = 6;
+            
+            for (let i = -size/2; i < size/2; i += lineSpacing) {
+              const startX = x + Math.cos(angle + Math.PI/2) * i;
+              const startY = y + Math.sin(angle + Math.PI/2) * i;
+              const endX = startX + Math.cos(angle) * lineLength;
+              const endY = startY + Math.sin(angle) * lineLength;
+              
+              ctx.beginPath();
+              ctx.moveTo(startX, startY);
+              ctx.lineTo(endX, endY);
+              ctx.stroke();
+            }
+            break;
+
+          case 'dots':
+            ctx.fillStyle = color;
+            const dotCount = Math.floor(paintSettings.intensity * 15);
+            for (let i = 0; i < dotCount; i++) {
+              const offsetX = (Math.random() - 0.5) * size;
+              const offsetY = (Math.random() - 0.5) * size;
+              const dotSize = 3 + Math.random() * 2;
+              ctx.beginPath();
+              ctx.arc(x + offsetX, y + offsetY, dotSize, 0, Math.PI * 2);
+              ctx.fill();
+            }
+            break;
+
+          case 'noise':
+            const imageData = ctx.getImageData(
+              Math.max(0, x - size/2), 
+              Math.max(0, y - size/2), 
+              Math.min(canvas.width, size), 
+              Math.min(canvas.height, size)
+            );
+            const data = imageData.data;
+            const colorObj = new THREE.Color(color);
+            
+            for (let i = 0; i < data.length; i += 4) {
+              if (Math.random() < paintSettings.intensity * 0.3) {
+                data[i] = colorObj.r * 255;     // Red
+                data[i + 1] = colorObj.g * 255; // Green
+                data[i + 2] = colorObj.b * 255; // Blue
+                data[i + 3] = opacity * 255;    // Alpha
+              }
+            }
+            
+            ctx.putImageData(imageData, Math.max(0, x - size/2), Math.max(0, y - size/2));
+            break;
+
+          case 'gradient':
+            const gradientRadius = size / 2;
+            const gradientFill = ctx.createRadialGradient(x, y, 0, x, y, gradientRadius);
+            gradientFill.addColorStop(0, color);
+            gradientFill.addColorStop(0.5, color + 'AA'); // Semi-transparent
+            gradientFill.addColorStop(1, color + '00'); // Fully transparent
+            ctx.fillStyle = gradientFill;
+            ctx.beginPath();
+            ctx.arc(x, y, gradientRadius, 0, Math.PI * 2);
+            ctx.fill();
+            break;
+        }
+
+        // Reset global alpha
+        ctx.globalAlpha = 1.0;
+      }
+
+      // Update texture
+      state.paintTexture.needsUpdate = true;
+
+      return {
+        lastPaintPosition: currentPosition
+      };
+    }),
+
+  paintStroke: (fromUV, toUV, pressure = 1.0) =>
+    set((state) => {
+      if (!state.paintContext || !state.paintTexture || !state.paintCanvas) return state;
+
+      const ctx = state.paintContext;
+      const canvas = state.paintCanvas;
+      const { paintSettings } = state;
+
+      // Convert UV coordinates to canvas coordinates
+      const fromX = fromUV.x * canvas.width;
+      const fromY = (1 - fromUV.y) * canvas.height;
+      const toX = toUV.x * canvas.width;
+      const toY = (1 - toUV.y) * canvas.height;
 
       const size = paintSettings.size * pressure;
       const opacity = paintSettings.opacity * pressure;
 
+      // Set up paint properties
+      ctx.globalCompositeOperation = 'source-over';
       ctx.globalAlpha = opacity;
-      ctx.fillStyle = paintSettings.color;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
 
+      // Draw stroke based on brush type
       switch (paintSettings.brushType) {
         case 'solid':
-          ctx.beginPath();
-          ctx.arc(x, y, size / 2, 0, Math.PI * 2);
-          ctx.fill();
-          break;
-
         case 'airbrush':
-          const gradient = ctx.createRadialGradient(x, y, 0, x, y, size / 2);
-          gradient.addColorStop(0, paintSettings.color);
-          gradient.addColorStop(1, 'transparent');
-          ctx.fillStyle = gradient;
-          ctx.beginPath();
-          ctx.arc(x, y, size / 2, 0, Math.PI * 2);
-          ctx.fill();
-          break;
-
-        case 'splatter':
-          for (let i = 0; i < 20; i++) {
-            const offsetX = (Math.random() - 0.5) * size;
-            const offsetY = (Math.random() - 0.5) * size;
-            const dotSize = Math.random() * 3 + 1;
-            ctx.beginPath();
-            ctx.arc(x + offsetX, y + offsetY, dotSize, 0, Math.PI * 2);
-            ctx.fill();
-          }
-          break;
-
-        case 'lines':
           ctx.strokeStyle = paintSettings.color;
-          ctx.lineWidth = 2;
-          const angle = paintSettings.angle * Math.PI / 180;
-          const lineLength = size;
-          for (let i = -size/2; i < size/2; i += 4) {
-            const startX = x + Math.cos(angle + Math.PI/2) * i;
-            const startY = y + Math.sin(angle + Math.PI/2) * i;
-            const endX = startX + Math.cos(angle) * lineLength;
-            const endY = startY + Math.sin(angle) * lineLength;
-            ctx.beginPath();
-            ctx.moveTo(startX, startY);
-            ctx.lineTo(endX, endY);
-            ctx.stroke();
-          }
-          break;
-
-        case 'dots':
-          for (let i = 0; i < 10; i++) {
-            const offsetX = (Math.random() - 0.5) * size;
-            const offsetY = (Math.random() - 0.5) * size;
-            ctx.beginPath();
-            ctx.arc(x + offsetX, y + offsetY, 2, 0, Math.PI * 2);
-            ctx.fill();
-          }
-          break;
-
-        case 'noise':
-          const imageData = ctx.getImageData(x - size/2, y - size/2, size, size);
-          const data = imageData.data;
-          const color = new THREE.Color(paintSettings.color);
-          
-          for (let i = 0; i < data.length; i += 4) {
-            if (Math.random() < paintSettings.intensity) {
-              data[i] = color.r * 255;     // Red
-              data[i + 1] = color.g * 255; // Green
-              data[i + 2] = color.b * 255; // Blue
-              data[i + 3] = opacity * 255; // Alpha
-            }
-          }
-          
-          ctx.putImageData(imageData, x - size/2, y - size/2);
-          break;
-
-        case 'gradient':
-          const gradientRadius = size / 2;
-          const gradientFill = ctx.createRadialGradient(x, y, 0, x, y, gradientRadius);
-          gradientFill.addColorStop(0, paintSettings.color);
-          gradientFill.addColorStop(0.5, paintSettings.color + '80');
-          gradientFill.addColorStop(1, 'transparent');
-          ctx.fillStyle = gradientFill;
+          ctx.lineWidth = size;
           ctx.beginPath();
-          ctx.arc(x, y, gradientRadius, 0, Math.PI * 2);
-          ctx.fill();
+          ctx.moveTo(fromX, fromY);
+          ctx.lineTo(toX, toY);
+          ctx.stroke();
+          break;
+
+        default:
+          // For other brush types, interpolate between points
+          const distance = Math.sqrt((toX - fromX) ** 2 + (toY - fromY) ** 2);
+          const steps = Math.max(1, Math.floor(distance / 5));
+          
+          for (let i = 0; i <= steps; i++) {
+            const t = i / steps;
+            const x = fromX + (toX - fromX) * t;
+            const y = fromY + (toY - fromY) * t;
+            const uv = new THREE.Vector2(x / canvas.width, 1 - y / canvas.height);
+            
+            // Temporarily disable stroke mode to paint individual dabs
+            const wasStroking = state.isPainting;
+            set({ isPainting: false });
+            get().paintAtPosition(uv, pressure);
+            set({ isPainting: wasStroking });
+          }
           break;
       }
+
+      // Reset global alpha
+      ctx.globalAlpha = 1.0;
 
       // Update texture
       state.paintTexture.needsUpdate = true;
@@ -843,13 +964,13 @@ export const useSceneStore = create<SceneState>((set, get) => ({
 
   clearPaintTexture: () =>
     set((state) => {
-      if (!state.paintCanvas) return state;
+      if (!state.paintContext || !state.paintCanvas) return state;
 
-      const ctx = state.paintCanvas.getContext('2d');
-      if (!ctx) return state;
+      const ctx = state.paintContext;
+      const canvas = state.paintCanvas;
 
-      ctx.fillStyle = 'white';
-      ctx.fillRect(0, 0, state.paintCanvas.width, state.paintCanvas.height);
+      // Clear the canvas completely (transparent)
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
 
       if (state.paintTexture) {
         state.paintTexture.needsUpdate = true;

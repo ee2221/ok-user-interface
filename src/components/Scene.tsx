@@ -470,25 +470,31 @@ const PaintInteraction = () => {
     initializePaintTexture(selectedObject);
 
     const handlePointerDown = (event) => {
-      if (event.button === 0) { // Left click
+      if (event.button === 0) { // Left click only
+        event.preventDefault();
         startPainting();
         handlePaint(event);
       }
     };
 
     const handlePointerMove = (event) => {
-      if (isPainting) {
+      if (isPainting && event.buttons === 1) { // Only when left button is pressed
+        event.preventDefault();
         handlePaint(event);
       }
     };
 
-    const handlePointerUp = () => {
-      stopPainting();
+    const handlePointerUp = (event) => {
+      if (event.button === 0) { // Left click release
+        event.preventDefault();
+        stopPainting();
+      }
     };
 
     const handlePaint = (event) => {
+      // Update raycaster with current pointer position
       raycaster.setFromCamera(pointer, camera);
-      const intersects = raycaster.intersectObject(selectedObject);
+      const intersects = raycaster.intersectObject(selectedObject, false);
       
       if (intersects.length > 0) {
         const intersection = intersects[0];
@@ -500,14 +506,31 @@ const PaintInteraction = () => {
       }
     };
 
-    window.addEventListener('pointerdown', handlePointerDown);
-    window.addEventListener('pointermove', handlePointerMove);
-    window.addEventListener('pointerup', handlePointerUp);
+    // Prevent context menu on right click during paint mode
+    const handleContextMenu = (event) => {
+      event.preventDefault();
+    };
+
+    // Add event listeners to the canvas element specifically
+    const canvas = document.querySelector('canvas');
+    if (canvas) {
+      canvas.addEventListener('pointerdown', handlePointerDown);
+      canvas.addEventListener('pointermove', handlePointerMove);
+      canvas.addEventListener('pointerup', handlePointerUp);
+      canvas.addEventListener('contextmenu', handleContextMenu);
+      
+      // Set cursor style for paint mode
+      canvas.style.cursor = 'crosshair';
+    }
 
     return () => {
-      window.removeEventListener('pointerdown', handlePointerDown);
-      window.removeEventListener('pointermove', handlePointerMove);
-      window.removeEventListener('pointerup', handlePointerUp);
+      if (canvas) {
+        canvas.removeEventListener('pointerdown', handlePointerDown);
+        canvas.removeEventListener('pointermove', handlePointerMove);
+        canvas.removeEventListener('pointerup', handlePointerUp);
+        canvas.removeEventListener('contextmenu', handleContextMenu);
+        canvas.style.cursor = 'default';
+      }
     };
   }, [
     editMode, 
@@ -543,7 +566,7 @@ const EditModeOverlay = () => {
   useEffect(() => {
     if (!selectedObject || !editMode || !(selectedObject instanceof THREE.Mesh)) return;
 
-    // Check if object is locked
+    // Check if object is locked before allowing edit
     const selectedObj = useSceneStore.getState().objects.find(obj => obj.object === selectedObject);
     const objectLocked = selectedObj ? isObjectLocked(selectedObj.id) : false;
     if (objectLocked) return;
@@ -890,7 +913,7 @@ const Scene: React.FC = () => {
               object={object}
               onClick={(e) => {
                 e.stopPropagation();
-                if (!placementMode && canSelectObject(object)) {
+                if (!placementMode && canSelectObject(object) && editMode !== 'paint') {
                   setSelectedObject(object);
                 }
               }}
